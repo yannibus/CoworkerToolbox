@@ -10,15 +10,15 @@ system:
 
     messages:
         welcome: |
-            Hi, I'm Agentforce! I use AI to search trusted sources, and more. Ask me "What else can you do?" to see how I can simplify your workday. How can I help?
+            Hi, I'm the Coworker Toolbox! I provide the Agentforce Coworker with extra capabilities on demand — like analyzing Salesforce files and attachments, or searching the web for real-time information. Ask me "What else can you do?" to see the full list, or just tell me what you need.
         error: "Something went wrong. Try again."
 
 config:
-    agent_label: "Coworker Skills"
+    agent_label: "Coworker Toolbox"
     agent_template: "EmployeeCopilot__AgentforceEmployeeAgent"
-    developer_name: "CoworkerSkills"
+    developer_name: "CoworkerToolbox"
     agent_type: "AgentforceEmployeeAgent"
-    description: "Empower Agentforce Coworker with specific capabilities such as web search, files analysis"
+    description: "Coworker Toolbox — a delegation-only toolbox of specific capabilities for the Agentforce Coworker to call on, such as real-time web search and Salesforce file/attachment analysis. The Coworker should proactively delegate here whenever a request needs one of these capabilities rather than attempting to handle it directly."
 
 language:
     default_locale: "en_US"
@@ -64,7 +64,7 @@ knowledge:
 
 start_agent agent_router:
     label: "Agent Router"
-    description: "Welcome the user and determine the appropriate subagent based on user input"
+    description: "Determines user intent from the conversation and routes to the appropriate subagent: off-topic redirection, clarification for ambiguous requests, real-time web search, or Salesforce file analysis."
     model_config:
         model: "model://sfdc_ai__DefaultEinsteinHyperClassifier"
     reasoning:
@@ -78,7 +78,7 @@ start_agent agent_router:
 
 subagent off_topic:
     label: "Off Topic"
-    description: "Redirect conversation to relevant topics when user request goes off-topic"
+    description: "Handles requests unrelated to this toolbox's capabilities — general knowledge questions, small talk beyond greetings, or anything outside web search and file analysis — by politely redirecting the user toward what the toolbox can actually help with, without answering the off-topic question itself."
     reasoning:
         instructions: ->
             | Your job is to redirect the conversation to relevant topics politely and succinctly.
@@ -99,7 +99,7 @@ subagent off_topic:
 
 subagent ambiguous_question:
     label: "Ambiguous Question"
-    description: "Redirect conversation to relevant topics when user request is too ambiguous"
+    description: "Handles requests that are too vague or broad to act on — by asking the user to clarify or narrow down what they need — without attempting to answer the request or invoke any action."
     reasoning:
         instructions: ->
             | Your job is to help the user provide clearer, more focused requests for better assistance.
@@ -121,8 +121,7 @@ subagent ambiguous_question:
 
 subagent GeneralWebSearch:
     label: "General Web Search"
-    description: "This subagent is about enabling the agent to perform real-time web searches to obtain specific information about things but not about company policy, rules or anything related to this company. Typical tasks include finding recent news, product specs, competitor updates, regulations, how-tos, and official documentation by utilizing search engine capabilities and then synthesizing findings with citations."
-
+    description: "Toolbox capability: performs real-time web searches to obtain specific external information — recent news, product specs, competitor updates, regulations, how-tos, or official documentation — that isn't available in Salesforce CRM. Synthesizes findings with citations. Delegate here whenever the Coworker needs current or external information rather than internal CRM data. Not for company-internal policy, rules, or CRM data."
     reasoning:
         instructions: ->
             | You can call the WebSearch action multiple times until you gather enough credible information to answer the request.
@@ -137,7 +136,6 @@ subagent GeneralWebSearch:
               When the question is too vague or general, ask for more details or clarification so you can give a better answer.
               When multiple sources provide conflicting information, tell the user about the conflict and point to the most reliable sources
               When summarizing results from the SearchTheWeb action, exclude website links from the final summary.
-              
 
         actions:
             WebSearch: @actions.WebSearch
@@ -145,10 +143,6 @@ subagent GeneralWebSearch:
                 with searchProvider=...
                 with siteFilter=...
                 with excludedDomains=...
-
-
-
-
 
     actions:
         WebSearch:
@@ -160,7 +154,7 @@ subagent GeneralWebSearch:
             progress_indicator_message: "Searching the web"
             source: "EmployeeCopilot__WebSearch"
             target: "standardInvocableAction://webSearchStream"
-                        
+
             inputs:
                 "searchQuery": string
                     description: |
@@ -186,7 +180,7 @@ subagent GeneralWebSearch:
                     label: "Excluded Domains"
                     is_required: False
                     is_user_input: False
-                        
+
             outputs:
                 "webSearchSummary": object
                     description: |
@@ -204,13 +198,15 @@ subagent GeneralWebSearch:
                     complex_data_type_name: "@apexClassType/AiCopilot__GenAiCitationInput"
 
 subagent Files_analysis:
-    label: "Files analysis"
-    description: |
-
-        Analyse contract attachment files
+    label: "Files Analysis"
+    description: "Toolbox capability: analyzes any Salesforce file provided as a resolved record reference (ContentDocument or ContentVersion) — contracts, legal extracts (e.g. a KBIS), invoices, identity documents, reports, or any other document type. Produces a plain-language summary of the file's content and, if the request includes a specific question, answers it directly from the document. Delegate here whenever the Coworker needs to understand, summarize, or extract information from a Salesforce file or attachment."
     reasoning:
         instructions: ->
-            |
+            | The File_Analysis action requires a resolved Salesforce record reference to the file (a ContentDocument or ContentVersion record) as "Input:Files" — NEVER a file upload, NEVER raw file content, and NEVER a plain-text file name or record Id typed as a sentence.
+              Never ask the user to attach, upload, or paste the file's content into the conversation. This agent reads Salesforce Files directly through the record reference, not through manual copy-paste.
+              If the caller (end user or a delegating agent) already provides a resolved record reference for the file — for example an inline reference notation such as "sfdc record:<Id>" or "sfdc contentversion:<Id>", a linked record variable, or the current record context — use it directly as Input:Files and call File_Analysis.
+              If only a file name or description is given with no resolvable record reference, tell the caller precisely what is missing: a Salesforce record reference (ContentDocument or ContentVersion Id) for that file, so it can be looked up and passed in using the "sfdc record:<Id>" or "sfdc contentversion:<Id>" notation. Do not suggest copy-pasting the document text or uploading the file as a workaround.
+              Always pass the user's free-text request (if any) as Input:Request — the prompt handles summarizing the file and answering specific questions from it.
         actions:
             File_Analysis: @actions.File_Analysis
                 with "Input:Request" = ...
@@ -218,20 +214,21 @@ subagent Files_analysis:
                 with outputLanguage = ...
                 with isPreviewOnly = ...
 
-
     actions:
         File_Analysis:
             label: "File Analysis"
             description: |
-        
-                Analyse a specific file
-            target: "generatePromptResponse://AAA_Files_Analysis"
+                Analyzes any Salesforce file (contract, legal extract, invoice, identity document, report, or any other document type) using a generic prompt: produces a plain-language summary of its content and, if a specific question is included in the request, answers it directly from the document's content.
+            target: "generatePromptResponse://AAA_CoworkerToolbox_Files_Analysis"
             inputs:
                 "Input:Request": string
                     label: "Request"
+                    description: "Optional free-text question or instruction about the file (for example, a specific question to answer, or an aspect to focus on). If empty, the agent produces a general plain-language summary of the file only."
                     is_required: False
                 "Input:Files": object
                     label: "Files"
+                    description: |
+                      A resolved Salesforce record reference to the file to analyze (ContentDocument or ContentVersion) — for example passed via "sfdc record:<Id>" or "sfdc contentversion:<Id>" notation. Must be a record reference, never raw file content, a plain-text file name, or a user-uploaded attachment.
                     is_required: True
                     complex_data_type_name: "lightning__recordInfoType"
                 outputLanguage: string
